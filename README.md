@@ -31,6 +31,7 @@ See [`docs/OVERVIEW.md`](./docs/OVERVIEW.md) for a fuller architecture walkthrou
 docs/
   PRD.md       full product requirements document (source of truth)
   OVERVIEW.md  condensed architecture overview for orientation
+  PROJECT.md   living status tracker: links, access, who has the project shared with them
 ```
 
 Application code will be added as implementation begins, starting with Phase 1 of the rollout plan in the PRD.
