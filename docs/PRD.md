@@ -586,6 +586,8 @@ All pages are server-rendered HTML. The Cloud Run web service generates a comple
 
 ### 14.4 5 AM Cron / Queue Worker Data Flow
 
+> See also: [5 AM Cron & Queue Worker — System Design](./designs/cron-queue-worker.md), which supersedes the serial-processing description below with a parallel Cloud Tasks fan-out per user per data source, plus a 6 AM briefing-generator task that's guaranteed to fire regardless of upstream failures.
+
 **Triggered 5:00 AM daily:**
 
 1. Cloud Scheduler triggers `inbox-poller / queue-worker` at 5:00 AM
