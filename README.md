@@ -36,6 +36,7 @@ docs/
   designs/        feature-level system design docs
     email-onboarding.md    email-first intro flow that seeds the Knowledge Graph
     cron-queue-worker.md   5 AM Cloud Tasks fan-out that feeds the 6 AM briefing generator
+  DESIGN_GAPS.md  tracks which designs are still needed before MVP implementation can start
 ```
 
 This repo is planned as a monorepo. Once implementation begins, top-level service directories will be added per [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md):
@@ -58,3 +59,5 @@ Build order follows the PRD's phased rollout:
 2. **Phase 2 (Full V1):** Tasks, Gmail inbox parsing, shadow calendar, weekly rhythm, evening capture, nudges, preferences page.
 3. **Phase 3 (Learning loop):** selective graph injection, profile change notifications, survey trend analysis.
 4. **Phase 4 (V2):** email delivery, news/portfolio sections, agentic tasks.
+
+Design work is still ahead of implementation — see [`docs/DESIGN_GAPS.md`](./docs/DESIGN_GAPS.md) for the checklist of what's left to design before Phase 1 can be built.
