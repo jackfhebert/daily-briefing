@@ -23,18 +23,29 @@ A personal AI chief-of-staff that synthesizes calendar, tasks, forwarded emails,
 
 **Stack:** Google Cloud Run (jobs + service), Firestore (all data, namespaced per user), Cloud Storage (rendered HTML archive), Gemini 1.5 Pro (all LLM work), Google Calendar/Tasks/Gmail APIs, OpenWeatherMap.
 
-See [`docs/OVERVIEW.md`](./docs/OVERVIEW.md) for a fuller architecture walkthrough, and [`docs/PRD.md`](./docs/PRD.md) for the complete product requirements (data schemas, flows, phased rollout, open questions).
+See [`docs/OVERVIEW.md`](./docs/OVERVIEW.md) for a fuller architecture walkthrough, [`docs/PRD.md`](./docs/PRD.md) for the complete product requirements (data schemas, flows, phased rollout, open questions), and [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) for the development process (tooling, environments, CI/CD, Claude Code workflow).
 
 ## Repo layout
 
 ```
 docs/
-  PRD.md       full product requirements document (source of truth)
-  OVERVIEW.md  condensed architecture overview for orientation
-  PROJECT.md   living status tracker: links, access, who has the project shared with them
+  PRD.md          full product requirements document (source of truth)
+  OVERVIEW.md     condensed architecture overview for orientation
+  PROJECT.md      living status tracker: links, access, who has the project shared with them
+  DEVELOPMENT.md  development process: tooling, environments, CI/CD, Claude Code workflow
 ```
 
-Application code will be added as implementation begins, starting with Phase 1 of the rollout plan in the PRD.
+This repo is planned as a monorepo. Once implementation begins, top-level service directories will be added per [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md):
+
+```
+briefing-generator/   6 AM synthesis Cloud Run job
+inbox-poller/         5 AM parse and queue worker
+web-server/           serves briefing pages and survey endpoint
+evening-server/       serves evening capture page
+nudge-sender/         8 PM email nudge job
+shared/               shared libraries, Firestore helpers, Gemini client
+infra/                Cloud Run configs, IAM, scheduler definitions
+```
 
 ## Status & roadmap
 
