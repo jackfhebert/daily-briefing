@@ -33,6 +33,8 @@ docs/
   OVERVIEW.md     condensed architecture overview for orientation
   PROJECT.md      living status tracker: links, access, who has the project shared with them
   DEVELOPMENT.md  development process: tooling, environments, CI/CD, Claude Code workflow
+  designs/        feature-level system design docs
+    email-onboarding.md   email-first intro flow that seeds the Knowledge Graph
 ```
 
 This repo is planned as a monorepo. Once implementation begins, top-level service directories will be added per [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md):
