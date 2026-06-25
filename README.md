@@ -21,7 +21,7 @@ A personal AI chief-of-staff that synthesizes calendar, tasks, forwarded emails,
 | `web-server` | always on | Serves all pages (morning/evening/archive/preferences) and the survey API |
 | `nudge-sender` | 8:00 PM | Emails a reminder if the user hasn't done their evening capture |
 
-**Stack:** Google Cloud Run (jobs + service), Firestore (all data, namespaced per user), Cloud Storage (rendered HTML archive), Gemini 1.5 Pro (all LLM work), Google Calendar/Tasks/Gmail APIs, OpenWeatherMap.
+**Stack:** Google Cloud Run (jobs + service), Firestore (all data, namespaced per user), Cloud Storage (rendered HTML archive), Gemini 1.5 Pro (all LLM work), Google Calendar/Tasks/Gmail APIs, National Weather Service API.
 
 See [`docs/OVERVIEW.md`](./docs/OVERVIEW.md) for a fuller architecture walkthrough, [`docs/PRD.md`](./docs/PRD.md) for the complete product requirements (data schemas, flows, phased rollout, open questions), and [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) for the development process (tooling, environments, CI/CD, Claude Code workflow).
 
@@ -55,8 +55,8 @@ infra/                Cloud Run configs, IAM, scheduler definitions
 
 Build order follows the PRD's phased rollout:
 
-1. **Phase 1 (MVP):** Cloud infra, OAuth onboarding, Knowledge Graph seeding, calendar + weather, morning briefing generator, survey endpoint.
-2. **Phase 2 (Full V1):** Tasks, Gmail inbox parsing, shadow calendar, weekly rhythm, evening capture, nudges, preferences page.
+1. **Phase 1 (MVP):** Cloud infra, OAuth onboarding, Knowledge Graph seeding, calendar + tracked-cities weather, Gmail inbox parsing + shadow calendar extraction/dedup, morning briefing generator, survey endpoint.
+2. **Phase 2 (Full V1):** Tasks, shadow calendar confirmation badges, weekly rhythm, evening capture, nudges, preferences page.
 3. **Phase 3 (Learning loop):** selective graph injection, profile change notifications, survey trend analysis.
 4. **Phase 4 (V2):** email delivery, news/portfolio sections, agentic tasks.
 

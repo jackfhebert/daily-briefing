@@ -6,6 +6,8 @@
 **Author:** Jack
 
 > **Relationship to the PRD:** this design supersedes the simpler serial-processing description in [PRD §14.4](../PRD.md#144-5-am-cron--queue-worker-data-flow) and elaborates on [PRD §11](../PRD.md#11-parsed-document-store--task-queue). Instead of one worker processing its queue serially, this design fans out parallel Cloud Tasks per user per data source via Cloud Tasks queues, and guarantees a 6 AM briefing-generator task is scheduled regardless of whether the data tasks succeed.
+>
+> **v1.1 update (PRD v1.9):** Gmail polling moved from Phase 2 into Phase 1 — `email-parse` below is no longer a scope mismatch with the PRD, it's confirmed Phase 1 fan-out work. This revision also adds the previously-missing `weather-fetch` worker (§4d) for the new per-user `tracked_cities[]` design in [PRD §5.3](../PRD.md#53-weather).
 
 ---
 
@@ -24,10 +26,11 @@ Cloud Scheduler — 5:00 AM
         ├── Cloud Task → email-parse worker
         ├── Cloud Task → calendar-parse worker
         ├── Cloud Task → tasks-parse worker
+        ├── Cloud Task → weather-fetch worker
         └── Cloud Task → briefing-generator (scheduled delivery: 6:00 AM)
 ```
 
-All four tasks are enqueued in parallel per user. The data-source tasks (email, calendar, tasks) execute immediately and in parallel. The briefing-generator task sits in the Cloud Tasks queue with a scheduled delivery time of 6:00 AM — it fires whether or not the data tasks have completed successfully.
+All five tasks are enqueued in parallel per user. The data-source tasks (email, calendar, tasks, weather) execute immediately and in parallel. The briefing-generator task sits in the Cloud Tasks queue with a scheduled delivery time of 6:00 AM — it fires whether or not the data tasks have completed successfully.
 
 ---
 
@@ -59,6 +62,7 @@ The inbox-poller's only job at this stage is fan-out: query active users and enq
    - `email-parse` task (immediate delivery)
    - `calendar-parse` task (immediate delivery)
    - `tasks-parse` task (immediate delivery)
+   - `weather-fetch` task (immediate delivery)
    - `briefing-generator` task (scheduled delivery: 6:00 AM)
 3. Write a `cron_run` record to Firestore (see schema below)
 4. Return 200 — job complete
@@ -80,7 +84,7 @@ Two queues are used — one for immediate data-source work, one for the schedule
 
 | Queue | Delivery | Max concurrent | Used for |
 |---|---|---|---|
-| `data-processing` | Immediate | 10 | email-parse, calendar-parse, tasks-parse |
+| `data-processing` | Immediate | 10 | email-parse, calendar-parse, tasks-parse, weather-fetch |
 | `briefing-trigger` | Scheduled (6:00 AM) | 5 | briefing-generator per user |
 
 **Retry policy for `data-processing` queue:**
@@ -97,23 +101,23 @@ Two queues are used — one for immediate data-source work, one for the schedule
 
 ### 4. Data-Source Workers (Cloud Run)
 
-Three workers, each handling one data source. All are HTTP endpoints on the same `inbox-poller` Cloud Run service (separate routes), authenticated via Cloud Tasks OIDC headers.
+Four workers, each handling one data source. All are HTTP endpoints on the same `inbox-poller` Cloud Run service (separate routes), authenticated via Cloud Tasks OIDC headers.
 
-Each worker follows the same five-step pattern:
+Each worker follows the same five-step pattern (weather-fetch is the exception — see §4d, it skips the Gemini parse step since there's nothing to interpret beyond the forecast itself):
 
 1. **Authenticate** — verify OIDC token from Cloud Tasks; extract `user_id` from task payload
-2. **Fetch** — call the relevant external API with the user's stored OAuth token
+2. **Fetch** — call the relevant external API with the user's stored OAuth token (or, for weather, no OAuth — just the user's `tracked_cities[]` list)
 3. **Parse** — call Gemini with item data + current Knowledge Graph context; produce structured output
 4. **Write** — write parsed documents to `users/{user_id}/parsed_documents/`; write any shadow calendar items or graph updates to their respective queues
 5. **Record** — update the `data_fetch_log` record for this user/date/source
 
-**Task payload (all three workers):**
+**Task payload (all four workers):**
 
 ```json
 {
   "user_id": "abc123",
   "date": "2026-05-07",
-  "job_type": "email_parse | calendar_parse | tasks_parse"
+  "job_type": "email_parse | calendar_parse | tasks_parse | weather_fetch"
 }
 ```
 
@@ -167,6 +171,28 @@ Each worker follows the same five-step pattern:
 
 ---
 
+#### 4d. weather-fetch worker
+
+**Route:** `POST /workers/weather-fetch`
+
+Unlike the other three workers, weather-fetch has no per-item Gemini parse step — a forecast doesn't need interpretation against the Knowledge Graph, just structured retrieval. This mirrors `forwarding_emails[]`: each user maintains a `tracked_cities[]` list (`{ slug, label, lat, lon, nws_gridpoint }`, per PRD §5.3), and the worker fetches a forecast per tracked city rather than per email/event/task.
+
+**Steps:**
+1. Read `user.tracked_cities[]` from the user record
+2. For each tracked city:
+   - If `nws_gridpoint` is already cached on the city record, skip the lookup step
+   - Otherwise, call NWS `GET /points/{lat},{lon}` once to resolve the gridpoint (`office`, `gridX`, `gridY`), then cache it back onto the city record so future runs skip this step
+   - Call NWS `GET /gridpoints/{office}/{gridX},{gridY}/forecast` to get the periods forecast
+3. Write one parsed document per city: `parsed_documents/weather_{city_slug}_{date}` — contains the raw NWS forecast periods (today + tonight, at minimum), no Gemini-derived fields
+4. No shadow calendar or Knowledge Graph writes — weather has nothing to extract into either
+5. Update the `data_fetch_log` record for this user/date/source (`source: "weather"`)
+
+**Auth note:** NWS requires no API key, only a descriptive `User-Agent` header identifying the app — there's no per-user OAuth token to manage here, unlike the other three workers.
+
+**Failure mode:** If the NWS call fails (gridpoint lookup or forecast) for a given city after the standard `data-processing` queue retries, that city is omitted from the briefing with no synthetic fallback document — the briefing generator simply has one fewer tracked city's forecast available. If *every* tracked city fails, the degraded-briefing note covers it the same way a failed calendar/task fetch would.
+
+---
+
 ### 5. Briefing-Generator Task (Scheduled 6 AM)
 
 The `briefing-trigger` queue delivers this task at 6:00 AM to the `briefing-generator` Cloud Run service. The design of the briefing generator is out of scope for this document, but from the 5 AM system's perspective:
@@ -188,6 +214,7 @@ The `briefing-trigger` queue delivers this task at 6:00 AM to the `briefing-gene
 | `users/{id}/shadow_events` | email-parse | Dates extracted from emails |
 | `users/{id}/archived_events` | calendar-parse | Rolled-off shadow events |
 | `data_fetch_log/{user_id}/{date}/{source}` | All workers | Per-source fetch status, item counts, errors |
+| `users/{id}.tracked_cities[]` | weather-fetch | Cached NWS gridpoint per tracked city, written back after first lookup |
 
 ---
 
@@ -199,6 +226,7 @@ The `briefing-trigger` queue delivers this task at 6:00 AM to the `briefing-gene
 | Task enqueue fails for one user | Logged to `cron_run`; other users unaffected |
 | Data-source task fails 3x | Marked failed in `data_fetch_log`; briefing proceeds without that source; degraded note in Good Morning section |
 | Gmail OAuth token expired | email-parse fails; token refresh attempted once; if still failed, mark failed and continue |
+| NWS gridpoint lookup or forecast call fails for a city | That city omitted from the briefing; no retry beyond the standard `data-processing` queue policy; no OAuth involved so this is purely an upstream-availability failure |
 | Briefing-generator task fails 3x | Logged as critical failure; no briefing delivered that day |
 
 ---

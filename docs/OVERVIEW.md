@@ -46,14 +46,14 @@ Survey answers (per-section micro-surveys on the morning page, profile questions
 | `nudge-sender` | Cloud Run job, 8 PM trigger |
 | Firestore | All user data, namespaced under `users/{user_id}/...` |
 | Cloud Storage | Rendered briefing HTML, `briefings/{user_id}/YYYY-MM-DD/{morning\|evening}.html` |
-| Secret Manager | Gemini and weather API keys; per-user OAuth tokens live encrypted in Firestore |
+| Secret Manager | Gemini API key; per-user OAuth tokens live encrypted in Firestore (NWS needs no key, just a `User-Agent` header) |
 
-External integrations: Google Calendar API v3, Google Tasks API v1, Gmail API (read + send), OpenWeatherMap, and Gemini 1.5 Pro for all LLM work.
+External integrations: Google Calendar API v3, Google Tasks API v1, Gmail API (read + send), National Weather Service API (per-user tracked cities, no API key required), and Gemini 1.5 Pro for all LLM work.
 
 ## Phased rollout (summary)
 
-1. **Phase 1 — Foundation (MVP):** infra, OAuth onboarding, Knowledge Graph seeding, calendar + weather, morning briefing generator, survey endpoint.
-2. **Phase 2 — Full V1:** Tasks, Gmail inbox parsing, shadow calendar dedup, weekly rhythm bootstrap, evening capture + nudges, full graph injection, preferences page.
+1. **Phase 1 — Foundation (MVP):** infra, OAuth onboarding, Knowledge Graph seeding, calendar + tracked-cities weather, Gmail inbox parsing + shadow calendar extraction/dedup, morning briefing generator, survey endpoint.
+2. **Phase 2 — Full V1:** Tasks, shadow calendar confirmation badges (UI polish), weekly rhythm bootstrap, evening capture + nudges, full graph injection, preferences page.
 3. **Phase 3 — Learning loop:** selective graph injection, profile change notifications, rhythm decay handling, survey trend analysis.
 4. **Phase 4 — V2 features:** email delivery, news/portfolio sections, agentic tasks (flight search, research, bookings).
 

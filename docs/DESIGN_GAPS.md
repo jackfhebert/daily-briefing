@@ -9,18 +9,18 @@
 | Doc | Covers | Leaves open |
 |---|---|---|
 | [`designs/email-onboarding.md`](./designs/email-onboarding.md) | Email-first intro flow (`jhebert-bot@gmail.com`, "Intro" thread) that incrementally builds the Knowledge Graph and shadow schedule from email replies | Handoff to `onboarding_complete` / the web-based onboarding flow in PRD §3.3 is explicitly deferred |
-| [`designs/cron-queue-worker.md`](./designs/cron-queue-worker.md) | 5 AM Cloud Tasks fan-out: email-parse, calendar-parse, tasks-parse workers, and the guaranteed 6 AM briefing-generator trigger | Briefing generator itself is explicitly out of scope; doesn't cover weather (see §2 below); OAuth token refresh is an open question (OQ-5B) |
+| [`designs/cron-queue-worker.md`](./designs/cron-queue-worker.md) | 5 AM Cloud Tasks fan-out: email-parse, calendar-parse, tasks-parse, and weather-fetch workers, plus the guaranteed 6 AM briefing-generator trigger | Briefing generator itself is explicitly out of scope; OAuth token refresh is an open question (OQ-5B) |
 
 Both existing design docs *reference* `graph_update` and `graph_split_check` jobs (written by the email-intro worker, the 5 AM workers, and the survey endpoint per PRD §12.2) — but no doc yet describes the worker that actually consumes those jobs. That gap is called out as its own item below (§3.3).
 
 ---
 
-## 2. Scope conflicts to resolve first
+## 2. Scope conflicts — resolved (PRD v1.9)
 
-Two mismatches between the PRD's Phase 1 scope and the existing design docs — worth a decision from you before writing the next docs, so they're not designed against the wrong scope:
+Both mismatches flagged in earlier revisions of this doc are now resolved:
 
-- **Email parsing isn't Phase 1.** PRD §15 lists Gmail inbox polling under **Phase 2**, not Phase 1 — Phase 1's data sources are just Calendar + Weather (plus limited Tasks; see below). But `cron-queue-worker.md` designs an `email-parse` worker as a core part of the 5 AM fan-out alongside calendar and tasks. Either (a) the cron design should be trimmed to calendar + weather (+ tasks) for MVP and email-parse deferred, or (b) the PRD's phasing should be updated to pull Gmail parsing into Phase 1. Worth deciding explicitly rather than building whichever one a future session happens to pick up first.
-- **Weather has no worker at all.** PRD §15 lists "Google Calendar + Weather" as Phase 1 data sources, but `cron-queue-worker.md`'s fan-out only enqueues `email-parse`, `calendar-parse`, and `tasks-parse` tasks — there's no `weather-fetch` worker anywhere in the design. This needs either a fourth worker added to the cron design, or weather folded into the briefing-generator itself (it's a much simpler fetch than the others — no per-item Gemini parse needed, just a single API call per user).
+- **Email parsing is now Phase 1.** PRD §15 was updated to pull Gmail inbox polling into Phase 1, matching what `cron-queue-worker.md` already designed. As a consequence, shadow-calendar extraction + deduplication (which depends on email-parse writing `shadow_events` for calendar-parse to dedup against) also moved to Phase 1 — Phase 2 now only covers the remaining UI polish (confirmation badges).
+- **Weather now has a worker.** `cron-queue-worker.md` §4d adds a `weather-fetch` worker to the 5 AM fan-out. It fetches a per-user `tracked_cities[]` list (mirroring `forwarding_emails[]`) against the NWS API — no API key, no per-item Gemini parse, just a cached gridpoint lookup + forecast call per city. PRD §5.3 was rewritten to match.
 
 ---
 
