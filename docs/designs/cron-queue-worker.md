@@ -8,6 +8,8 @@
 > **Relationship to the PRD:** this design supersedes the simpler serial-processing description in [PRD §14.4](../PRD.md#144-5-am-cron--queue-worker-data-flow) and elaborates on [PRD §11](../PRD.md#11-parsed-document-store--task-queue). Instead of one worker processing its queue serially, this design fans out parallel Cloud Tasks per user per data source via Cloud Tasks queues, and guarantees a 6 AM briefing-generator task is scheduled regardless of whether the data tasks succeed.
 >
 > **v1.1 update (PRD v1.9):** Gmail polling moved from Phase 2 into Phase 1 — `email-parse` below is no longer a scope mismatch with the PRD, it's confirmed Phase 1 fan-out work. This revision also adds the previously-missing `weather-fetch` worker (§4d) for the new per-user `tracked_cities[]` design in [PRD §5.3](../PRD.md#53-weather).
+>
+> **v1.2 update (PRD v1.10):** `calendar-parse` (§4b) no longer uses per-user OAuth — Phase 1 Calendar access moved to calendar sharing (user shares their calendar with the bot account; the bot reads it with its own single credential). Per-user OAuth (OQ-5B) is now a Phase 2 concern scoped to Google Tasks only.
 
 ---
 
@@ -146,14 +148,17 @@ Each worker follows the same five-step pattern (weather-fetch is the exception �
 
 **Route:** `POST /workers/calendar-parse`
 
+**No per-user OAuth (Phase 1):** the user shares their Google Calendar with the bot account; this worker authenticates as the bot itself (a single service-account credential, same identity for every user) and reads each user's events via `calendarId: {user's Google account email}`. There is no per-user token to fetch, refresh, or store for this worker.
+
 **Steps:**
-1. Fetch calendar events via Google Calendar API v3 for: today, tomorrow, and next 7 days
-2. For each event: create a `cal_parse` analysis job
-3. Gemini call per event: receives event data + Knowledge Graph + `[[Weekly Rhythm]]` node
-4. Gemini returns: `rhythm_match` (bool), `anomaly_flag` (bool), `shadow_cal_match` (bool, checked against `shadow_events`), `conflict_flag` (bool)
-5. Write parsed document: `parsed_documents/cal_{event_id}_{date}`
-6. Run shadow calendar deduplication — fuzzy match against `shadow_events` for same date ± 1 hour + title similarity ≥ 0.7; write `google_cal_match` result back to the shadow event record
-7. Run shadow calendar rolloff: move events where `event_date < today` to `archived_events`
+1. Call Google Calendar API v3 with the bot's own credentials, `calendarId: {user.email}`, for: today, tomorrow, and next 7 days
+2. If the API returns a not-found/forbidden response (calendar not shared, or sharing was revoked), record `data_fetch_log` status as `not_shared` (distinct from `failed` — this is an expected, non-transient state, not an error) and stop here for this user; no retries
+3. For each event: create a `cal_parse` analysis job
+4. Gemini call per event: receives event data + Knowledge Graph + `[[Weekly Rhythm]]` node
+5. Gemini returns: `rhythm_match` (bool), `anomaly_flag` (bool), `shadow_cal_match` (bool, checked against `shadow_events`), `conflict_flag` (bool)
+6. Write parsed document: `parsed_documents/cal_{event_id}_{date}`
+7. Run shadow calendar deduplication — fuzzy match against `shadow_events` for same date ± 1 hour + title similarity ≥ 0.7; write `google_cal_match` result back to the shadow event record
+8. Run shadow calendar rolloff: move events where `event_date < today` to `archived_events`
 
 ---
 
@@ -227,6 +232,7 @@ The `briefing-trigger` queue delivers this task at 6:00 AM to the `briefing-gene
 | Data-source task fails 3x | Marked failed in `data_fetch_log`; briefing proceeds without that source; degraded note in Good Morning section |
 | Gmail OAuth token expired | email-parse fails; token refresh attempted once; if still failed, mark failed and continue |
 | NWS gridpoint lookup or forecast call fails for a city | That city omitted from the briefing; no retry beyond the standard `data-processing` queue policy; no OAuth involved so this is purely an upstream-availability failure |
+| User hasn't shared their calendar (or revoked sharing) | calendar-parse logs `data_fetch_log` status `not_shared`, not `failed`; no retries; briefing proceeds without calendar data — this is an expected, common Phase 1 state, not an error |
 | Briefing-generator task fails 3x | Logged as critical failure; no briefing delivered that day |
 
 ---
@@ -244,7 +250,7 @@ The `briefing-trigger` queue delivers this task at 6:00 AM to the `briefing-gene
 
 **OQ-5A:** Should the inbox-poller fan-out stagger task delivery times slightly per user (e.g., user 1 at 5:00, user 2 at 5:02) to avoid thundering-herd on the Gmail and Calendar APIs, or is the user count small enough (5–10) that this isn't needed?
 
-**OQ-5B:** OAuth token refresh — tokens are stored encrypted in Firestore per user. Should token refresh be handled inside each worker, or should there be a shared token-refresh utility in `shared/` that all workers call?
+**OQ-5B:** OAuth token refresh — now scoped to Phase 2 only (Google Tasks), since Calendar moved to bot-side calendar-sharing access in Phase 1 and no longer needs per-user tokens. When Tasks ships: should token refresh be handled inside the tasks-parse worker, or should there be a shared token-refresh utility in `shared/`?
 
 **OQ-5C:** The `briefing-trigger` queue delivers at exactly 6:00 AM. If the briefing generator takes 3–4 minutes to run, the briefing won't be ready until ~6:04. Is that acceptable, or should the scheduled delivery be pulled earlier (e.g., 5:55 AM) to target a 6:00 AM ready time?
 

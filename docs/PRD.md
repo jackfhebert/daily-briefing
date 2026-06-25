@@ -1,9 +1,11 @@
 # Daily Briefing System — Product Requirements Document
-**Version 1.9 · April 2026**
+**Version 1.10 · April 2026**
 **Status:** Draft — for implementation planning
 **Owner:** Jack
 **Last Updated:** April 2026
 
+> **Key changes from v1.9:** Google Calendar access in Phase 1 no longer uses per-user OAuth — the user shares their calendar with the bot account instead, and the bot reads it with its own single credential (`calendarId` = user's email). This removes per-user OAuth token storage/refresh from Phase 1 entirely. Per-user OAuth is deferred to Phase 2, scoped to Google Tasks (which has no sharing equivalent). A user who doesn't share their calendar simply runs without that data — no error, no blocked onboarding.
+>
 > **Key changes from v1.8:** Gmail inbox polling moved from Phase 2 into Phase 1 — forwarded-email parsing, shadow calendar extraction, and Knowledge Graph writes from email now ship with the MVP. Weather redesigned from a single fixed lat/long via OpenWeatherMap into a per-user list of tracked cities, fetched from the National Weather Service API — mirroring the `forwarding_emails[]` pattern used for the email inbox.
 >
 > **Key changes from v1.7:** User Profile, Context Summary System, and Weekly Rhythm Profile unified into a single Knowledge Graph — a set of interconnected markdown documents stored in Firestore, rooted at an `About [User]` node and branching into child nodes (people, activities, places, projects, preferences, rhythm) as topics grow. Nodes are LLM-written and split automatically when a topic is dense enough. Full graph injected into every Gemini synthesis call.
@@ -91,15 +93,17 @@ Each user forwards emails to the shared briefing Gmail inbox. Emails are routed 
 
 Onboarding is intentionally lightweight. A new user is provisioned by an admin (user record created in Firestore), then directed to the onboarding page to complete setup.
 
+> **Calendar access via sharing, not per-user OAuth (Phase 1):** rather than sending the user through a Google OAuth consent screen to grant Calendar/Tasks scopes, the user instead shares their Google Calendar directly with the briefing bot account (`jhebert-bot@gmail.com`), using Google Calendar's native sharing feature at "See all event details" permission. The bot's own single set of credentials then reads each user's calendar via `calendarId: {user's Google account email}`. This avoids per-user OAuth token storage/refresh entirely for Phase 1. Per-user OAuth is deferred to Phase 2, when Google Tasks (which has no equivalent sharing mechanism) ships. Login to the web app itself still uses Google OAuth — that's a separate, identity-only grant with no Calendar/Tasks scopes requested.
+
 1. Admin creates user record in Firestore with email and assigned `user_id`
-2. User visits the system URL and authenticates via Google OAuth
+2. User visits the system URL and authenticates via Google OAuth (sign-in only — no Calendar/Tasks scopes requested)
 3. System detects no `onboarding_complete` flag → redirects to `/onboarding`
-4. User connects Google Calendar and Google Tasks (OAuth consent screen)
+4. User is shown instructions to share their Google Calendar with the bot account; onboarding page offers a "Check connection" action that attempts a read against `calendarId: {user's email}` using the bot's credentials and shows connected/not-yet-shared status
 5. User sets their forwarding email address and confirms the briefing Gmail address to forward to
 6. User writes a short self-introduction (see Section 3.4)
 7. System parses the introduction with Gemini → generates root node and initial child nodes → seeds the Knowledge Graph
-8. System sets `onboarding_complete: true` → redirects to dashboard
-9. First briefing generated at the next scheduled 6 AM run
+8. System sets `onboarding_complete: true` → redirects to dashboard — **calendar sharing is not required to complete onboarding**; a user who skips or shares later just runs without calendar data until they do
+9. First briefing generated at the next scheduled 6 AM run — degrades gracefully (no calendar section, or a note that calendar isn't connected yet) if the calendar was never shared
 
 ### 3.4 Onboarding Self-Introduction
 
@@ -131,15 +135,16 @@ The system is designed for a small number of users (5–10). Each user has their
 
 ### 5.1 Google Calendar
 
-- Read via Google Calendar API v3 (OAuth 2.0)
+- Read via Google Calendar API v3 — **no per-user OAuth in Phase 1.** The user shares their calendar with the bot account (`jhebert-bot@gmail.com`) at "See all event details" permission; the bot's own credentials read it via `calendarId: {user's Google account email}`
+- If a user hasn't shared their calendar (or revokes sharing), the fetch simply returns nothing for that user — no error surfaced beyond a degraded-briefing note; calendar is treated as optional data, same as any other source that can be temporarily unavailable
 - Fetch events for: today, tomorrow preview, and next 7 days for weekly context
-- Include all calendars accessible to the authenticated user
 - Surface: event title, time, location, attendees, description/notes
 - Flag: scheduling conflicts, back-to-back blocks, events linked to items in the forwarded inbox
+- Per-user OAuth (full Calendar API scopes, multiple calendars, write access) is a Phase 2+ upgrade if sharing turns out to be too limiting
 
 ### 5.2 Google Tasks
 
-- Read via Google Tasks API v1 — shares the same OAuth 2.0 service account as Google Calendar, no additional auth setup required
+- **Phase 2.** Google Tasks has no calendar-style sharing feature — there's no equivalent way to grant read access to another account without OAuth. So Tasks is deferred until per-user OAuth 2.0 is introduced (see §16 Open Questions)
 - Fetch: overdue items, due today, due within next 3 days
 - Group by task list (e.g., Personal, Work, Family, Kids — user-defined lists in Google Tasks)
 - Evening capture entries are stored in Firestore and surfaced alongside Google Tasks items in Section 3
@@ -559,19 +564,19 @@ All pages are server-rendered HTML. The Cloud Run web service generates a comple
 | Component | Description |
 |-----------|-------------|
 | **briefing-generator** | Cloud Run job — triggered at 6 AM. Loops over active users; reads pre-computed `parsed_documents` and context models, makes one Gemini synthesis call, generates survey questions, renders HTML, writes to `briefings/{user_id}/` in Cloud Storage and Firestore metadata. |
-| **inbox-poller / queue-worker** | Cloud Run job — triggered at 5 AM. Fetches new emails from shared briefing inbox; routes each to the correct user by sender address; enqueues analysis jobs per user; fetches tasks and calendar events per user via per-user OAuth tokens; processes `analysis_queue`; writes `parsed_documents`. |
+| **inbox-poller / queue-worker** | Cloud Run job — triggered at 5 AM. Fetches new emails from shared briefing inbox; routes each to the correct user by sender address; enqueues analysis jobs per user; fetches each user's calendar events via the bot's own credentials against their shared calendar (no per-user OAuth in Phase 1); processes `analysis_queue`; writes `parsed_documents`. |
 | **web-server** | Cloud Run service — serves morning HTML pages, evening capture page, archive index, preferences, onboarding flow, and `POST /api/survey/submit` endpoint. All routes authenticated; data scoped by `user_id` from session. |
 | **nudge-sender** | Cloud Run job — triggered at 8 PM. Loops over active users; checks each for evening page visit; sends Gmail nudge if not visited. |
 | **Firestore** | All collections nested under `users/{user_id}/`: `knowledge_graph`, `parsed_documents`, `parsed_documents_archive`, `analysis_queue`, `shadow_events`, `archived_events`, `inbox_items`, `evening_captures`, `survey_responses`, `briefing_metadata`, `graph_update_log`. Top-level `users` collection stores account records. |
 | **Cloud Storage** | HTML briefing archive at `briefings/{user_id}/YYYY-MM-DD/{morning\|evening}.html` |
-| **Secret Manager** | Google AI (Gemini) API key. (NWS requires no API key — only a `User-Agent` header.) Per-user OAuth tokens stored encrypted in Firestore. |
+| **Secret Manager** | Google AI (Gemini) API key; the bot account's own Calendar API service-account credentials. (NWS requires no API key — only a `User-Agent` header.) Per-user OAuth tokens are a Phase 2+ concern, once Google Tasks ships. |
 
 ### 14.2 Integrations
 
 | Integration | Details |
 |-------------|---------|
-| Google Calendar | Google Calendar API v3 — per-user OAuth 2.0; tokens stored per user in Firestore |
-| Google Tasks | Google Tasks API v1 — same per-user OAuth token as Calendar |
+| Google Calendar | Google Calendar API v3 — single bot service account; per-user calendars accessed via Google Calendar sharing (`calendarId` = user's Google account email), no per-user OAuth in Phase 1 |
+| Google Tasks | Google Tasks API v1 — **Phase 2.** Requires per-user OAuth 2.0 (no sharing equivalent exists for Tasks) |
 | Gmail (read) | Gmail API — read-only access to shared briefing inbox; emails routed to users by sender address match |
 | Gmail (send) | Gmail API — send from shared briefing inbox for nudges and Phase 4 email delivery |
 | Weather | National Weather Service API (api.weather.gov) — no API key; per-user `tracked_cities[]` list stored in Firestore user record |
@@ -645,9 +650,9 @@ All pages are server-rendered HTML. The Cloud Run web service generates a comple
 
 - Cloud Run infra, CI/CD, Secret Manager
 - Firestore schema: all collections under `users/{user_id}/`; top-level `users` collection
-- Google OAuth + admin user provisioning flow
-- Onboarding: Calendar/Tasks OAuth, forwarding email setup, self-introduction → Gemini parse → Knowledge Graph seed (root node + initial child nodes)
-- Google Calendar + tracked-cities Weather (per-user OAuth; NWS API, no key required)
+- Google OAuth (sign-in only) + admin user provisioning flow
+- Onboarding: calendar-sharing setup (no per-user OAuth), forwarding email setup, self-introduction → Gemini parse → Knowledge Graph seed (root node + initial child nodes)
+- Google Calendar (via calendar sharing, no per-user OAuth) + tracked-cities Weather (NWS API, no key required)
 - Gmail inbox polling → sender-address routing → parse jobs → shadow calendar + Knowledge Graph writes
 - Shadow calendar extraction (from forwarded email) + deduplication against Google Calendar — the event safety net described in §9
 - Task queue: `analysis_queue` + `parsed_documents`
@@ -658,7 +663,7 @@ All pages are server-rendered HTML. The Cloud Run web service generates a comple
 
 ### Phase 2 — Full V1
 
-- Google Tasks (all lists) — parse jobs enqueued at 5 AM
+- Google Tasks (all lists) — per-user OAuth 2.0 introduced for this; parse jobs enqueued at 5 AM
 - Shadow calendar confirmation badges in the briefing UI (extraction + dedup matching ship in Phase 1; this is the remaining display polish)
 - Weekly rhythm profile — 8-week bootstrap + passive observation
 - Evening capture: autosave + `capture_parse` job → profile writes
@@ -696,6 +701,8 @@ All pages are server-rendered HTML. The Cloud Run web service generates a comple
 | **OQ-4** | Queue worker parallelism — the 5 AM worker processes jobs serially by default. If the number of daily emails + tasks grows large, evaluate moving to parallel Cloud Run jobs or Cloud Tasks for concurrency. Monitor job completion time in Phase 2. |
 | **OQ-5** | Agentic task scope (Phase 4) — define which categories of agentic tasks are in scope for v2: flight search, product links, article summaries, calendar booking. Each has different tool requirements and latency profiles. Scope this before Phase 4 planning. |
 | **OQ-6** | Gemini model version — Gemini 1.5 Pro is the default. Evaluate Gemini 2.0 Flash for lower-latency queue worker jobs (parsing, context summary generation) where speed matters more than reasoning depth. |
+| **OQ-7** | Calendar-sharing UX — confirm the exact onboarding copy/flow for asking a user to share their calendar with the bot account (link to Google's sharing settings vs. step-by-step instructions), and whether the "Check connection" action (§3.3) should be a manual button or auto-poll until detected. |
+| **OQ-8** | Per-user OAuth for Tasks (Phase 2) — token storage/encryption and refresh strategy (shared `shared/` utility vs. per-worker) needs to be designed before Phase 2 Tasks work starts; deferred from Phase 1 now that Calendar no longer needs it. |
 
 ---
 
