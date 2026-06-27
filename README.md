@@ -36,6 +36,7 @@ docs/
   designs/        feature-level system design docs
     email-onboarding.md    email-first intro flow that seeds the Knowledge Graph
     cron-queue-worker.md   5 AM Cloud Tasks fan-out that feeds the 6 AM briefing generator
+    web-onboarding.md      admin provisioning, sign-in, and the /onboarding page (calendar sharing, forwarding email, self-intro)
   DESIGN_GAPS.md  tracks which designs are still needed before MVP implementation can start
 ```
 

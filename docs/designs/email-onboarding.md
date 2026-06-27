@@ -5,7 +5,7 @@
 **Last Updated:** April 2026
 **Author:** Jack
 
-> **Relationship to the PRD:** this design covers a separate, email-first intro flow — a user emails `jhebert-bot@gmail.com` to start building their Knowledge Graph asynchronously, independent of the web-based OAuth onboarding in [PRD §3.3](../PRD.md#33-user-onboarding-flow). The handoff between this flow and `onboarding_complete` is explicitly out of scope here (see Deliberately Deferred).
+> **Relationship to the PRD:** this design covers a separate, email-first intro flow — a user emails `jhebert-bot@gmail.com` to start building their Knowledge Graph asynchronously, independent of the web-based onboarding in [PRD §3.3](../PRD.md#33-user-onboarding-flow). The handoff between this flow and `onboarding_complete` is now designed in [Web-Based Onboarding & Signup — System Design §4](./web-onboarding.md#4-reconciling-with-the-email-first-intro-flow).
 
 ---
 
@@ -266,7 +266,7 @@ Worker receives task: thread_id, new_message_ids: [msg_001, msg_003]
 The following are out of scope for this design phase and will be addressed separately:
 
 - **Actually sending reply emails** — the `outbound_email_queue` stub is the seam for this; a future worker reads from it and calls the Gmail send API
-- **Promoting a user to full onboarding** — connecting this flow to the `onboarding_complete` flag in the PRD; the handoff logic (manual or automated) is not designed here
+- ~~**Promoting a user to full onboarding**~~ — now designed; see [`web-onboarding.md` §1 and §4](./web-onboarding.md)
 - **Knowledge Graph node splitting** — the `graph_split_check` logic from PRD §10.4 applies eventually, but the intro worker does not trigger it
 - **Rate limiting / abuse prevention** — emails from unrecognized senders are ignored per existing PRD routing logic; additional hardening deferred
 

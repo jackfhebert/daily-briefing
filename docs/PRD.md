@@ -89,7 +89,7 @@ Each user forwards emails to the shared briefing Gmail inbox. Emails are routed 
 
 ### 3.3 User Onboarding Flow
 
-> See also: [Email-Based User Onboarding — System Design](./designs/email-onboarding.md), a separate, email-first intro flow that can build a user's Knowledge Graph asynchronously before or alongside the flow below. The handoff between the two is not yet designed.
+> See also: [Email-Based User Onboarding — System Design](./designs/email-onboarding.md), a separate, email-first intro flow that can build a user's Knowledge Graph asynchronously before or alongside the flow below, and [Web-Based Onboarding & Signup — System Design](./designs/web-onboarding.md), which elaborates the steps below in full and defines the handoff between the two flows.
 
 Onboarding is intentionally lightweight. A new user is provisioned by an admin (user record created in Firestore), then directed to the onboarding page to complete setup.
 
